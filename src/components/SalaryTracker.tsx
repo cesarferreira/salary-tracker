@@ -20,7 +20,16 @@ import {
 const currencies = {
   USD: { symbol: '$', label: 'USD' },
   GBP: { symbol: '£', label: 'GBP' },
-  EUR: { symbol: '€', label: 'EUR' }
+  EUR: { symbol: '€', label: 'EUR' },
+  JPY: { symbol: '¥', label: 'JPY' },
+  AUD: { symbol: 'A$', label: 'AUD' },
+  CAD: { symbol: 'C$', label: 'CAD' },
+  CHF: { symbol: 'CHF', label: 'CHF' },
+  CNY: { symbol: '¥', label: 'CNY' },
+  INR: { symbol: '₹', label: 'INR' },
+  NZD: { symbol: 'NZ$', label: 'NZD' },
+  SGD: { symbol: 'S$', label: 'SGD' },
+  HKD: { symbol: 'HK$', label: 'HKD' }
 };
 
 const getDaysInMonth = (date: Date) => {
@@ -37,6 +46,7 @@ const SalaryTracker = () => {
   const [isMounted, setIsMounted] = useState(false);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [salaryFrequency, setSalaryFrequency] = useState<'yearly' | 'monthly' | 'daily' | 'hourly'>('yearly');
 
   useEffect(() => {
     setIsMounted(true);
@@ -53,8 +63,18 @@ const SalaryTracker = () => {
   }, [todayCounter, monthCounter, yearCounter]);
 
   const calculateEarnings = useCallback((now: Date, yearlySalary: number) => {
-    const dailyRate = yearlySalary / 365;
-    const monthlyRate = yearlySalary / 12;
+    let dailyRate = yearlySalary / 365;
+    let monthlyRate = yearlySalary / 12;
+    if (salaryFrequency === 'monthly') {
+        dailyRate = yearlySalary / 30; // Assuming 30 days in a month
+        monthlyRate = yearlySalary;
+    } else if (salaryFrequency === 'daily') {
+        dailyRate = yearlySalary;
+        monthlyRate = yearlySalary * 30; // Assuming 30 days in a month
+    } else if (salaryFrequency === 'hourly') {
+        dailyRate = yearlySalary * 8; // Assuming 8 hours in a workday
+        monthlyRate = dailyRate * 30; // Assuming 30 days in a month
+    }
     const daysInCurrentMonth = getDaysInMonth(now);
 
     const startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -72,7 +92,7 @@ const SalaryTracker = () => {
     const earnedThisYear = (yearlySalary / 365) * daysIntoYear;
 
     return { earnedToday, earnedThisMonth, earnedThisYear };
-  }, []);
+  }, [salaryFrequency]);
 
   const startCounter = useCallback(() => {
     if (timerRef.current) {
@@ -217,6 +237,21 @@ const SalaryTracker = () => {
                   {Object.entries(currencies).map(([code, { label }]) => (
                     <SelectItem key={code} value={code}>
                       {label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select
+                value={salaryFrequency}
+                onValueChange={(value) => setSalaryFrequency(value as 'yearly' | 'monthly' | 'daily' | 'hourly')}
+              >
+                <SelectTrigger className="w-28">
+                  <SelectValue placeholder="Salary Frequency" />
+                </SelectTrigger>
+                <SelectContent>
+                  {['yearly', 'monthly', 'daily', 'hourly'].map((freq) => (
+                    <SelectItem key={freq} value={freq}>
+                      {freq.charAt(0).toUpperCase() + freq.slice(1)}
                     </SelectItem>
                   ))}
                 </SelectContent>
