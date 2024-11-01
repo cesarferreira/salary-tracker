@@ -3,5 +3,6 @@
 import SalaryTracker from '@/components/SalaryTracker';
 
 export default function SalaryPage() {
-  return <SalaryTracker />;
+  return <SalaryTracker  />; // Pass the base path
+
 }
