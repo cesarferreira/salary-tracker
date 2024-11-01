@@ -9,6 +9,9 @@ import Script from 'next/script';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+
+import BarChartComponent from "@/components/BarChartComponent"
+
 import {
   Select,
   SelectContent,
@@ -16,6 +19,14 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+
+const data = [
+  { label: "Item 1", value: 275, color: "#ff5733" },
+  { label: "Item 2", value: 200, color: "#33c3ff" },
+  { label: "Item 3", value: 187, color: "#85ff33" },
+  { label: "Item 4", value: 173, color: "#ff33a1" },
+  { label: "Item 5", value: 90, color: "#ffa733" },
+]
 
 const currencies = {
   USD: { symbol: '$', label: 'USD' },
@@ -52,8 +63,10 @@ const SalaryTracker = () => {
     setIsMounted(true);
     const savedSalary = localStorage.getItem('salary') || '';
     const savedCurrency = localStorage.getItem('currency') as keyof typeof currencies || 'USD';
+    const savedFrequency = localStorage.getItem('salaryFrequency') as 'yearly' | 'monthly' | 'daily' | 'hourly' || 'yearly';
     setSalary(savedSalary);
     setCurrency(savedCurrency);
+    setSalaryFrequency(savedFrequency);
   }, []);
 
   const updateCounters = useCallback((earnedToday: number, earnedThisMonth: number, earnedThisYear: number) => {
@@ -188,6 +201,12 @@ const SalaryTracker = () => {
     }
   }, [currency, isMounted]);
 
+  useEffect(() => {
+    if (isMounted) {
+      localStorage.setItem('salaryFrequency', salaryFrequency);
+    }
+  }, [salaryFrequency, isMounted]);
+
   const handleScriptLoad = () => {
     setIsScriptLoaded(true);
   };
@@ -299,8 +318,18 @@ const SalaryTracker = () => {
               </Card>
             </div>
           </CardContent>
+          <CardContent>
+            <BarChartComponent 
+              data={data}
+              xKey="value" // Key representing values in the chart
+              yKey="label" // Key representing labels/categories in the chart
+              title="Custom Bar Chart"
+              description="Data Representation for Items"
+              />
+          </CardContent>
         </Card>
       </div>
+
     </>
   );
 };
