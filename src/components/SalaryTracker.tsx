@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { CountUp as CountUpType } from 'countup.js';
 import Script from 'next/script';
 
@@ -8,51 +8,89 @@ const currencies = {
   EUR: { symbol: '€', label: 'EUR' }
 };
 
-const getStorageValue = (key: string, defaultValue: string): string => {
-  if (typeof window !== 'undefined') {
-    const saved = localStorage.getItem(key);
-    return saved || defaultValue;
-  }
-  return defaultValue;
-};
-
 const SalaryTracker = () => {
   const [salary, setSalary] = useState<string>('');
   const [currency, setCurrency] = useState<keyof typeof currencies>('USD');
   const [todayCounter, setTodayCounter] = useState<CountUpType | null>(null);
   const [monthCounter, setMonthCounter] = useState<CountUpType | null>(null);
   const [yearCounter, setYearCounter] = useState<CountUpType | null>(null);
-  const [currentTime, setCurrentTime] = useState<string>('00:00:00');
-  const [intervalId, setIntervalId] = useState<NodeJS.Timer | null>(null);
-  const [isClient, setIsClient] = useState(false);
+  const [currentTime, setCurrentTime] = useState<string>('');
+  const [isMounted, setIsMounted] = useState(false);
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
+  const timerRef = useRef<NodeJS.Timer | null>(null);
 
   useEffect(() => {
-    setIsClient(true);
-    setSalary(getStorageValue('salary', ''));
-    setCurrency(getStorageValue('currency', 'USD') as keyof typeof currencies);
+    setIsMounted(true);
+    const savedSalary = localStorage.getItem('salary') || '';
+    const savedCurrency = localStorage.getItem('currency') as keyof typeof currencies || 'USD';
+    setSalary(savedSalary);
+    setCurrency(savedCurrency);
   }, []);
 
-  useEffect(() => {
-    if (isClient) {
-      localStorage.setItem('salary', salary);
-    }
-  }, [salary, isClient]);
+  const updateCounters = useCallback((earnedToday: number, earnedThisMonth: number, earnedThisYear: number) => {
+    todayCounter?.update(earnedToday);
+    monthCounter?.update(earnedThisMonth);
+    yearCounter?.update(earnedThisYear);
+  }, [todayCounter, monthCounter, yearCounter]);
 
-  useEffect(() => {
-    if (isClient && isScriptLoaded) {
-      localStorage.setItem('currency', currency);
-      initializeCounters();
-    }
-  }, [currency, isClient, isScriptLoaded]);
+  const calculateEarnings = useCallback((now: Date, yearlySalary: number) => {
+    const dailyRate = yearlySalary / 365;
+    const monthlyRate = yearlySalary / 12;
 
-  useEffect(() => {
-    return () => {
-      if (intervalId) clearInterval(intervalId);
+    const startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+    const elapsedToday = now.getTime() - startTime.getTime();
+    const dayProgress = elapsedToday / (24 * 60 * 60 * 1000);
+    const earnedToday = dailyRate * dayProgress;
+
+    const daysIntoMonth = (now.getTime() - startOfMonth.getTime()) / (24 * 60 * 60 * 1000);
+    const earnedThisMonth = (monthlyRate / 30) * daysIntoMonth;
+
+    const daysIntoYear = (now.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000);
+    const earnedThisYear = (yearlySalary / 365) * daysIntoYear;
+
+    return { earnedToday, earnedThisMonth, earnedThisYear };
+  }, []);
+
+  const formatTime = (date: Date) => {
+    return date.toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit'
+    });
+  };
+
+  const startCounter = useCallback(() => {
+    if (timerRef.current) {
+      clearInterval(timerRef.current);
+    }
+
+    const yearlySalary = parseFloat(salary);
+    if (!yearlySalary || yearlySalary <= 0) {
+      return;
+    }
+
+    const updateTimer = () => {
+      const now = new Date();
+      const { earnedToday, earnedThisMonth, earnedThisYear } = calculateEarnings(now, yearlySalary);
+      updateCounters(earnedToday, earnedThisMonth, earnedThisYear);
+      setCurrentTime(formatTime(now));
     };
-  }, [intervalId]);
 
-  const initializeCounters = () => {
+    updateTimer();
+    timerRef.current = setInterval(updateTimer, 1000);
+
+    return () => {
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+      }
+    };
+  }, [salary, updateCounters, calculateEarnings]);
+
+  const initializeCounters = useCallback(() => {
     if (typeof window === 'undefined' || !isScriptLoaded) return;
 
     const options = {
@@ -66,87 +104,55 @@ const SalaryTracker = () => {
       suffix: ''
     };
 
-    const today = new (window as any).countUp.CountUp('todayEarnings', 0, options);
-    const month = new (window as any).countUp.CountUp('monthEarnings', 0, options);
-    const year = new (window as any).countUp.CountUp('yearEarnings', 0, options);
+    try {
+      const CountUp = (window as any).countUp.CountUp;
+      const today = new CountUp('todayEarnings', 0, options);
+      const month = new CountUp('monthEarnings', 0, options);
+      const year = new CountUp('yearEarnings', 0, options);
 
-    if (!today.error) {
-      today.start();
-      month.start();
-      year.start();
+      if (!today.error) {
+        today.start();
+        month.start();
+        year.start();
 
-      setTodayCounter(today);
-      setMonthCounter(month);
-      setYearCounter(year);
-    } else {
-      console.error(today.error);
+        setTodayCounter(today);
+        setMonthCounter(month);
+        setYearCounter(year);
+      }
+    } catch (error) {
+      console.error('Error initializing counters:', error);
     }
-  };
+  }, [currency, isScriptLoaded]);
 
   useEffect(() => {
-    if (isClient && isScriptLoaded) {
+    if (isScriptLoaded && isMounted) {
       initializeCounters();
-      if (salary) {
-        startCounter();
-      }
     }
-  }, [isScriptLoaded, isClient]);
+  }, [isScriptLoaded, initializeCounters, isMounted]);
+
+  useEffect(() => {
+    if (todayCounter && salary && isScriptLoaded && isMounted) {
+      return startCounter();
+    }
+  }, [todayCounter, salary, isScriptLoaded, startCounter, isMounted]);
+
+  useEffect(() => {
+    if (isMounted && salary) {
+      localStorage.setItem('salary', salary);
+    }
+  }, [salary, isMounted]);
+
+  useEffect(() => {
+    if (isMounted) {
+      localStorage.setItem('currency', currency);
+    }
+  }, [currency, isMounted]);
 
   const handleScriptLoad = () => {
     setIsScriptLoaded(true);
   };
 
-  const startCounter = () => {
-    if (intervalId) {
-      clearInterval(intervalId);
-    }
-
-    const yearlySalary = parseFloat(salary);
-    if (!yearlySalary || yearlySalary <= 0) {
-      alert('Please enter a valid yearly salary');
-      return;
-    }
-
-    const dailyRate = yearlySalary / 365;
-    const monthlyRate = yearlySalary / 12;
-
-    const now = new Date();
-    const startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-    const startOfYear = new Date(now.getFullYear(), 0, 1);
-
-    const updateCounter = () => {
-      const currentTime = new Date();
-
-      const elapsedToday = currentTime - startTime;
-      const dayProgress = elapsedToday / (24 * 60 * 60 * 1000);
-      const earnedToday = dailyRate * dayProgress;
-
-      const daysIntoMonth = (currentTime - startOfMonth) / (24 * 60 * 60 * 1000);
-      const earnedThisMonth = (monthlyRate / 30) * daysIntoMonth;
-
-      const daysIntoYear = (currentTime - startOfYear) / (24 * 60 * 60 * 1000);
-      const earnedThisYear = (yearlySalary / 365) * daysIntoYear;
-
-      todayCounter?.update(earnedToday);
-      monthCounter?.update(earnedThisMonth);
-      yearCounter?.update(earnedThisYear);
-
-      const timeString = currentTime.toLocaleTimeString('en-US', {
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit'
-      });
-      setCurrentTime(timeString);
-    };
-
-    updateCounter();
-    const newIntervalId = setInterval(updateCounter, 1000);
-    setIntervalId(newIntervalId);
-  };
-
-  if (!isClient) {
+  if (!isMounted) {
     return null;
   }
 
