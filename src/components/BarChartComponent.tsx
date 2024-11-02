@@ -80,7 +80,16 @@ export function BarChartComponent({
               dataKey={xKey}
               layout="vertical"
               radius={5}
-              fill={({ payload }) => payload.color || "var(--default-color)"}
+              fill="var(--default-color)"
+              shape={(props: { payload: { color?: string } } & any) => {
+                const { payload, tooltipPosition, tooltipPayload, dataKey, ...rest } = props;
+                return (
+                  <rect
+                    {...rest}
+                    fill={payload.color || "var(--default-color)"}
+                  />
+                );
+              }}
             />
           </BarChart>
         </ChartContainer>
@@ -101,7 +110,7 @@ export function BarChartComponent({
 BarChartComponent.propTypes = {
   data: PropTypes.arrayOf(
     PropTypes.shape({
-      [PropTypes.string]: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
+      key: PropTypes.oneOfType([PropTypes.string, PropTypes.number]).isRequired,
       color: PropTypes.string, // Optional color field
     })
   ).isRequired,

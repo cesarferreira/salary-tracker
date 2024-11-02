@@ -9,6 +9,7 @@ import Script from 'next/script';
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Toggle } from "@/components/ui/toggle";
 
 import BarChartComponent from "@/components/BarChartComponent"
 
@@ -43,9 +44,6 @@ const currencies = {
   HKD: { symbol: 'HK$', label: 'HKD' }
 };
 
-const getDaysInMonth = (date: Date) => {
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
-};
 
 const SalaryTracker = () => {
   const [salary, setSalary] = useState<string>('');
@@ -58,15 +56,18 @@ const SalaryTracker = () => {
   const [isScriptLoaded, setIsScriptLoaded] = useState(false);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [salaryFrequency, setSalaryFrequency] = useState<'yearly' | 'monthly' | 'daily' | 'hourly'>('yearly');
+  const [countEveryDay, setCountEveryDay] = useState<boolean>(false);
 
   useEffect(() => {
     setIsMounted(true);
     const savedSalary = localStorage.getItem('salary') || '';
     const savedCurrency = localStorage.getItem('currency') as keyof typeof currencies || 'USD';
     const savedFrequency = localStorage.getItem('salaryFrequency') as 'yearly' | 'monthly' | 'daily' | 'hourly' || 'yearly';
+    const savedCountEveryDay = localStorage.getItem('countEveryDay') === 'true';
     setSalary(savedSalary);
     setCurrency(savedCurrency);
     setSalaryFrequency(savedFrequency);
+    setCountEveryDay(savedCountEveryDay);
   }, []);
 
   const updateCounters = useCallback((earnedToday: number, earnedThisMonth: number, earnedThisYear: number) => {
@@ -76,36 +77,67 @@ const SalaryTracker = () => {
   }, [todayCounter, monthCounter, yearCounter]);
 
   const calculateEarnings = useCallback((now: Date, yearlySalary: number) => {
-    let dailyRate = yearlySalary / 365;
+    // Calculate working days in a year (excluding weekends)
+    const WORKING_DAYS_IN_YEAR = 260; // 52 weeks * 5 working days
+    const WORKING_DAYS_IN_MONTH = 22; // Average working days in a month
+
+    // Adjust rates based on frequency
+    let dailyRate = yearlySalary / WORKING_DAYS_IN_YEAR;
     let monthlyRate = yearlySalary / 12;
+
     if (salaryFrequency === 'monthly') {
-        dailyRate = yearlySalary / 30; // Assuming 30 days in a month
+        dailyRate = yearlySalary / WORKING_DAYS_IN_MONTH;
         monthlyRate = yearlySalary;
     } else if (salaryFrequency === 'daily') {
         dailyRate = yearlySalary;
-        monthlyRate = yearlySalary * 30; // Assuming 30 days in a month
+        monthlyRate = dailyRate * WORKING_DAYS_IN_MONTH;
     } else if (salaryFrequency === 'hourly') {
-        dailyRate = yearlySalary * 8; // Assuming 8 hours in a workday
-        monthlyRate = dailyRate * 30; // Assuming 30 days in a month
+        dailyRate = yearlySalary * 8; // 8 hours per workday
+        monthlyRate = dailyRate * WORKING_DAYS_IN_MONTH;
     }
-    const daysInCurrentMonth = getDaysInMonth(now);
 
     const startTime = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
+    // Only calculate earnings if it's a weekday (unless countEveryDay is true)
+    const isWeekday = countEveryDay || (now.getDay() !== 0 && now.getDay() !== 6);
     const elapsedToday = now.getTime() - startTime.getTime();
     const dayProgress = elapsedToday / (24 * 60 * 60 * 1000);
-    const earnedToday = dailyRate * dayProgress;
+    const earnedToday = isWeekday ? dailyRate * dayProgress : 0;
 
-    const daysIntoMonth = (now.getTime() - startOfMonth.getTime()) / (24 * 60 * 60 * 1000);
-    const earnedThisMonth = (monthlyRate / daysInCurrentMonth) * daysIntoMonth;
+    // Calculate working days in current month so far
+    const daysIntoMonth = Math.floor((now.getTime() - startOfMonth.getTime()) / (24 * 60 * 60 * 1000));
+    const workingDaysInMonth = Array.from({ length: daysIntoMonth + 1 }).filter((_, i) => {
+        const date = new Date(startOfMonth);
+        date.setDate(date.getDate() + i);
+        return countEveryDay || (date.getDay() !== 0 && date.getDay() !== 6);
+    }).length - 1; // Subtract 1 to exclude current day
+    
+    // Add the current day's progress
+    const currentDayProgress = dayProgress;
+    const earnedThisMonth = (monthlyRate / WORKING_DAYS_IN_MONTH) * 
+        (workingDaysInMonth + (isWeekday ? currentDayProgress : 0));
 
-    const daysIntoYear = (now.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000);
-    const earnedThisYear = (yearlySalary / 365) * daysIntoYear;
+    // Convert input salary to yearly based on frequency
+    const annualizedSalary = salaryFrequency === 'monthly' ? yearlySalary * 12
+        : salaryFrequency === 'daily' ? yearlySalary * WORKING_DAYS_IN_YEAR
+        : salaryFrequency === 'hourly' ? yearlySalary * 8 * WORKING_DAYS_IN_YEAR
+        : yearlySalary;
+
+    // Calculate working days in year so far
+    const daysIntoYear = Math.floor((now.getTime() - startOfYear.getTime()) / (24 * 60 * 60 * 1000));
+    const workingDaysInYear = Array.from({ length: daysIntoYear + 1 }).filter((_, i) => {
+        const date = new Date(startOfYear);
+        date.setDate(date.getDate() + i);
+        return countEveryDay || (date.getDay() !== 0 && date.getDay() !== 6);
+    }).length - 1; // Subtract 1 to exclude current day
+
+    const earnedThisYear = (annualizedSalary / WORKING_DAYS_IN_YEAR) * 
+        (workingDaysInYear + (isWeekday ? currentDayProgress : 0));
 
     return { earnedToday, earnedThisMonth, earnedThisYear };
-  }, [salaryFrequency]);
+  }, [salaryFrequency, countEveryDay]);
 
   const startCounter = useCallback(() => {
     if (timerRef.current) {
@@ -207,18 +239,24 @@ const SalaryTracker = () => {
     }
   }, [salaryFrequency, isMounted]);
 
+  useEffect(() => {
+    if (isMounted) {
+      localStorage.setItem('countEveryDay', countEveryDay.toString());
+    }
+  }, [countEveryDay, isMounted]);
+
   const handleScriptLoad = () => {
     setIsScriptLoaded(true);
   };
 
-  const handleStartClick = () => {
-    const yearlySalary = parseFloat(salary);
-    if (!yearlySalary || yearlySalary <= 0) {
-      alert('Please enter a valid yearly salary');
-      return;
-    }
-    startCounter();
-  };
+  // const handleStartClick = () => {
+  //   const yearlySalary = parseFloat(salary);
+  //   if (!yearlySalary || yearlySalary <= 0) {
+  //     alert('Please enter a valid yearly salary');
+  //     return;
+  //   }
+  //   startCounter();
+  // };
 
   if (!isMounted) {
     return null;
@@ -275,9 +313,16 @@ const SalaryTracker = () => {
                   ))}
                 </SelectContent>
               </Select>
-              <Button onClick={handleStartClick}>
+              <Toggle
+                pressed={countEveryDay}
+                onPressedChange={setCountEveryDay}
+                aria-label="Count every day"
+              >
+                Count weekends
+              </Toggle>
+              {/* <Button onClick={handleStartClick}>
                 Start Counter
-              </Button>
+              </Button> */}
             </div>
             
             <div className="space-y-4">
@@ -318,7 +363,7 @@ const SalaryTracker = () => {
               </Card>
             </div>
           </CardContent>
-          <CardContent>
+          {/* <CardContent>
             <BarChartComponent 
               data={data}
               xKey="value" // Key representing values in the chart
@@ -326,7 +371,7 @@ const SalaryTracker = () => {
               title="Custom Bar Chart"
               description="Data Representation for Items"
               />
-          </CardContent>
+          </CardContent> */}
         </Card>
       </div>
 
